@@ -415,12 +415,12 @@ function renderChatTotal(chat){
     const t=calcChatTotal(chat);
     if(!t.hasUsage){el.textContent='';el.title='';return;}
     let txt='本对话 Σ'+t.totalTokens.toLocaleString();
-    if(t.hasCost&&t.cost>0)txt+=' ≈¥'+t.cost.toFixed(4);
+    if(t.hasCost&&t.cost>0)txt+=' ≈$'+t.cost.toFixed(4)+'(¥'+(t.cost*USD_TO_CNY).toFixed(2)+')';
     el.textContent='💰 '+txt;
     el.title='本对话累计：入'+t.inputTokens+' 出'+t.outputTokens
         +(t.cacheReadTokens?' 缓存命中'+t.cacheReadTokens:'')
         +(t.cacheWriteTokens?' 缓存写入'+t.cacheWriteTokens:'')
-        +(t.hasCost?'\n估算总花费 ≈¥'+t.cost.toFixed(4):'\n（未填单价，仅统计token）');
+        +(t.hasCost?'\n估算总花费 ≈$'+t.cost.toFixed(4)+' ≈¥'+(t.cost*USD_TO_CNY).toFixed(4)+'（汇率'+USD_TO_CNY+'预估）':'\n（未填单价，仅统计token）');
 }
 function appendUsageInfo(area,chat){
     const nodes=area.querySelectorAll('.msg.assistant');
@@ -541,7 +541,7 @@ function renderEngForm(){
         <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)"><h4 style="font-size:13px;margin-bottom:8px">💵 费用估算单价（美元 / 1M token，选填）</h4>
             <div class="fr"><div class="fg"><label>输入</label><input type="number" id="engPriceIn" value="${p.priceIn||0}" step="0.01" min="0"></div><div class="fg"><label>输出</label><input type="number" id="engPriceOut" value="${p.priceOut||0}" step="0.01" min="0"></div></div>
             <div class="fr"><div class="fg"><label>缓存命中(读)</label><input type="number" id="engPriceCR" value="${p.priceCacheRead||0}" step="0.01" min="0"></div><div class="fg"><label>缓存写入</label><input type="number" id="engPriceCW" value="${p.priceCacheWrite||0}" step="0.01" min="0"></div></div>
-            <div style="font-size:11px;color:var(--text2)">填了单价后，每条回复下方会显示估算费用。不填则只显示 token 数。</div>
+            <div style="font-size:11px;color:var(--text2)">填美元单价（如 Claude Opus 输入15、输出75、缓存命中1.5、缓存写入18.75）。下方费用会显示 $美元 + ¥人民币预估（汇率 ${USD_TO_CNY}）。不填则只显示 token 数。</div>
         </div>
         <div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap"><button class="btn btn-p" onclick="saveEng()">💾 保存配置</button><button class="btn" onclick="tConn()" id="tConnBtn">🔑 测试连通</button>${API.DEFAULT_PROFILES[p.id]?'':'<button class="btn btn-d" onclick="delEng()">🗑️ 删除</button>'}</div>
     `;
