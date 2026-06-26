@@ -48,7 +48,6 @@ const API = (function () {
         }
         return h;
     }
-    }
 
     /* ---------- 通用 fetch ---------- */
     async function apiF(profile, path, options, key) {
