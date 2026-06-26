@@ -416,26 +416,40 @@ const API = (function () {
         return { abort: function () { aborted = true; cleanup(); try { ctrl.abort(); } catch (e) {} }, get full() { return full; } };
     }
 
+    /* ---------- 统一 usage 结构（供 UI 显示），优先读平台返回的费用 ---------- */
     function normalizeUsage(mode, usage) {
         if (!usage) return null;
-        if (mode === 'anthropic') return {
-            inputTokens: usage.input_tokens || 0, outputTokens: usage.output_tokens || 0,
-            cacheWriteTokens: usage.cache_creation_input_tokens || 0, cacheReadTokens: usage.cache_read_input_tokens || 0,
-        };
-        if (mode === 'gemini') return {
-            inputTokens: usage.prompt_tokens || 0, outputTokens: usage.completion_tokens || 0,
-            cacheWriteTokens: 0, cacheReadTokens: usage.cached_tokens || 0,
-        };
-        const details = usage.prompt_tokens_details || {};
-        return {
-            inputTokens: usage.prompt_tokens || 0, outputTokens: usage.completion_tokens || 0,
-            cacheWriteTokens: 0, cacheReadTokens: details.cached_tokens || 0,
-        };
+        let u;
+        if (mode === 'anthropic') {
+            u = {
+                inputTokens: usage.input_tokens || 0,
+                outputTokens: usage.output_tokens || 0,
+                cacheWriteTokens: usage.cache_creation_input_tokens || 0,
+                cacheReadTokens: usage.cache_read_input_tokens || 0,
+            };
+        } else if (mode === 'gemini') {
+            u = {
+                inputTokens: usage.prompt_tokens || 0,
+                outputTokens: usage.completion_tokens || 0,
+                cacheWriteTokens: 0,
+                cacheReadTokens: usage.cached_tokens || 0,
+            };
+        } else {
+            const details = usage.prompt_tokens_details || {};
+            u = {
+                inputTokens: usage.prompt_tokens || 0,
+                outputTokens: usage.completion_tokens || 0,
+                cacheWriteTokens: 0,
+                cacheReadTokens: details.cached_tokens || 0,
+            };
+        }
+        u.mode = mode;
+        // ★ 若中转站直接返回了费用，优先记录（不同平台字段名不同，尽量都兜住）
+        const c = (usage.cost != null) ? usage.cost
+                : (usage.total_cost != null) ? usage.total_cost
+                : (usage.credits != null) ? usage.credits
+                : (usage.total_credits != null) ? usage.total_credits
+                : null;
+        if (c != null && !isNaN(c)) u.platformCost = Number(c);
+        return u;
     }
-
-    return {
-        DEFAULT_PROFILES: DEFAULT_PROFILES,
-        apiF: apiF, streamChat: streamChat,
-        fetchModels: fetchModels, testConnection: testConnection, getKeys: getKeys,
-    };
-})();
