@@ -397,6 +397,29 @@ function renderMs(){
     appendUsageInfo(area,c);
     const ti=document.getElementById('titleIn');if(ti)ti.value=c.title||'';
     document.getElementById('pinBtn').textContent=c.isPinned?'📍':'📌';
+    renderChatTotal(c);   // ★ 新增
+}
+
+/* ===== 标题栏右侧显示本对话累计花费 ===== */
+function renderChatTotal(chat){
+    let el=document.getElementById('chatTotalTag');
+    if(!el){
+        const acts=document.querySelector('.hdr-acts');
+        if(!acts)return;
+        el=document.createElement('span');
+        el.id='chatTotalTag';
+        el.style.cssText='font-size:11px;color:var(--text2);margin-right:8px;white-space:nowrap;align-self:center';
+        acts.parentNode.insertBefore(el,acts);
+    }
+    const t=calcChatTotal(chat);
+    if(!t.hasUsage){el.textContent='';el.title='';return;}
+    let txt='本对话 Σ'+t.totalTokens.toLocaleString();
+    if(t.hasCost&&t.cost>0)txt+=' ≈¥'+t.cost.toFixed(4);
+    el.textContent='💰 '+txt;
+    el.title='本对话累计：入'+t.inputTokens+' 出'+t.outputTokens
+        +(t.cacheReadTokens?' 缓存命中'+t.cacheReadTokens:'')
+        +(t.cacheWriteTokens?' 缓存写入'+t.cacheWriteTokens:'')
+        +(t.hasCost?'\n估算总花费 ≈¥'+t.cost.toFixed(4):'\n（未填单价，仅统计token）');
 }
 function appendUsageInfo(area,chat){
     const nodes=area.querySelectorAll('.msg.assistant');
@@ -430,7 +453,77 @@ function formatUsage(u,engId){
     }
     return ' | '+parts.join(' ')+costStr;
 }
+/* ===== 单条费用计算（按协议区分缓存；优先用平台返回费用） ===== */
+function calcMsgCost(u,engId){
+    if(!u)return null;
+    // 平台直接返回了费用 → 最准，优先用
+    if(u.platformCost!=null)return u.platformCost;
+    const p=engId?S.profiles[engId]:null;
+    if(!p||!(p.priceIn||p.priceOut||p.priceCacheRead||p.priceCacheWrite))return null;
+    const input=u.inputTokens||0,output=u.outputTokens||0;
+    const cacheRead=u.cacheReadTokens||0,cacheWrite=u.cacheWriteTokens||0;
+    let inputCost;
+    if((u.mode||p.protocol||'openai')==='openai'){
+        // OpenAI 协议：prompt_tokens 已含 cached，需减出去单独按缓存价算
+        inputCost=Math.max(0,input-cacheRead-cacheWrite)/1e6*(p.priceIn||0);
+    }else{
+        // Anthropic / Gemini：input 本身不含缓存，直接全价
+        inputCost=input/1e6*(p.priceIn||0);
+    }
+    return inputCost
+        + output/1e6*(p.priceOut||0)
+        + cacheRead/1e6*(p.priceCacheRead||0)
+        + cacheWrite/1e6*(p.priceCacheWrite||0);
+}
 
+function formatUsage(u,engId){
+    if(!u)return '';
+    const input=u.inputTokens||0,output=u.outputTokens||0;
+    const cacheRead=u.cacheReadTokens||0,cacheWrite=u.cacheWriteTokens||0;
+    // ★ 总数 = 入 + 出 + 缓存命中 + 缓存写入（真实消耗的全部 token）
+    const total=input+output+cacheRead+cacheWrite;
+    const parts=[];
+    parts.push('⬆入'+input);parts.push('⬇出'+output);parts.push('Σ总'+total);
+    if(cacheRead)parts.push('💰命中'+cacheRead);
+    if(cacheWrite)parts.push('✍写'+cacheWrite);
+    let costStr='';
+    const p=engId?S.profiles[engId]:null;
+    if(p&&(p.priceIn||p.priceOut||p.priceCacheRead||p.priceCacheWrite)){
+        let inputCost;
+        if((p.protocol||'openai')==='openai'){
+            // OpenAI 协议：prompt_tokens 已含 cached，需减出去单独按缓存价算
+            inputCost=Math.max(0,input-cacheRead-cacheWrite)/1e6*(p.priceIn||0);
+        }else{
+            // Anthropic / Gemini：input 本身不含缓存，直接全价
+            inputCost=input/1e6*(p.priceIn||0);
+        }
+        const cost=inputCost
+            + output/1e6*(p.priceOut||0)
+            + cacheRead/1e6*(p.priceCacheRead||0)
+            + cacheWrite/1e6*(p.priceCacheWrite||0);
+        if(cost>0)costStr=' ≈¥'+cost.toFixed(4);
+    }
+    return ' | '+parts.join(' ')+costStr;
+}
+
+/* ===== 整段对话累计花费（token + 金额） ===== */
+function calcChatTotal(chat){
+    const r={inputTokens:0,outputTokens:0,cacheReadTokens:0,cacheWriteTokens:0,totalTokens:0,cost:0,hasCost:false,hasUsage:false};
+    if(!chat||!chat.messages)return r;
+    chat.messages.forEach(m=>{
+        if(m.role!=='assistant'||!m._usage)return;
+        const u=m._usage;
+        r.hasUsage=true;
+        r.inputTokens+=u.inputTokens||0;
+        r.outputTokens+=u.outputTokens||0;
+        r.cacheReadTokens+=u.cacheReadTokens||0;
+        r.cacheWriteTokens+=u.cacheWriteTokens||0;
+        const c=calcMsgCost(u,m._engId);
+        if(c!=null){r.cost+=c;r.hasCost=true;}
+    });
+    r.totalTokens=r.inputTokens+r.outputTokens+r.cacheReadTokens+r.cacheWriteTokens;
+    return r;
+}
 function renderAll(){renderSB();renderMs();renderEngTabs();renderEngForm();renderCSForm();renderStorageInfo();renderArchiveInfo();renderMode();}
 
 /* ===== 引擎配置（多协议 + 缓存 + 价格 + 多Key） ===== */
