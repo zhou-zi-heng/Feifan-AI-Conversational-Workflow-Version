@@ -417,42 +417,50 @@ const API = (function () {
     }
 
     /* ---------- 统一 usage 结构（供 UI 显示），优先读平台返回的费用 ---------- */
-    function normalizeUsage(mode, usage) {
-        if (!usage) return null;
-        let u;
-        if (mode === 'anthropic') {
-            u = {
-                inputTokens: usage.input_tokens || 0,
-                outputTokens: usage.output_tokens || 0,
-                cacheWriteTokens: usage.cache_creation_input_tokens || 0,
-                cacheReadTokens: usage.cache_read_input_tokens || 0,
-            };
-        } else if (mode === 'gemini') {
-            u = {
-                inputTokens: usage.prompt_tokens || 0,
-                outputTokens: usage.completion_tokens || 0,
-                cacheWriteTokens: 0,
-                cacheReadTokens: usage.cached_tokens || 0,
-            };
-        } else {
-            const details = usage.prompt_tokens_details || {};
-            u = {
-                inputTokens: usage.prompt_tokens || 0,
-                outputTokens: usage.completion_tokens || 0,
-                cacheWriteTokens: 0,
-                cacheReadTokens: details.cached_tokens || 0,
-            };
-        }
-        u.mode = mode;
-        // ★ 若中转站直接返回了费用，优先记录（不同平台字段名不同，尽量都兜住）
-        const c = (usage.cost != null) ? usage.cost
-                : (usage.total_cost != null) ? usage.total_cost
-                : (usage.credits != null) ? usage.credits
-                : (usage.total_credits != null) ? usage.total_credits
-                : null;
-        if (c != null && !isNaN(c)) u.platformCost = Number(c);
-        return u;
+/* ---------- 统一 usage 结构（供 UI 显示），优先读平台返回的费用 ---------- */
+function normalizeUsage(mode, usage) {
+    if (!usage) return null;
+    let u;
+    if (mode === 'anthropic') {
+        u = {
+            inputTokens: usage.input_tokens || 0,
+            outputTokens: usage.output_tokens || 0,
+            cacheWriteTokens: usage.cache_creation_input_tokens || 0,
+            cacheReadTokens: usage.cache_read_input_tokens || 0,
+        };
+    } else if (mode === 'gemini') {
+        u = {
+            inputTokens: usage.prompt_tokens || 0,
+            outputTokens: usage.completion_tokens || 0,
+            cacheWriteTokens: 0,
+            cacheReadTokens: usage.cached_tokens || 0,
+        };
+    } else {
+        // OpenAI 协议：兼容多种中转站字段命名（修复缓存读不出来）
+        const details = usage.prompt_tokens_details || {};
+        const cacheRead = details.cached_tokens
+            || usage.cache_read_input_tokens
+            || usage.cached_tokens
+            || details.cache_read_input_tokens || 0;
+        const cacheWrite = usage.cache_creation_input_tokens
+            || details.cache_creation_input_tokens
+            || usage.cache_creation_tokens || 0;
+        u = {
+            inputTokens: usage.prompt_tokens || 0,
+            outputTokens: usage.completion_tokens || 0,
+            cacheWriteTokens: cacheWrite,
+            cacheReadTokens: cacheRead,
+        };
     }
+    u.mode = mode;
+    const c = (usage.cost != null) ? usage.cost
+            : (usage.total_cost != null) ? usage.total_cost
+            : (usage.credits != null) ? usage.credits
+            : (usage.total_credits != null) ? usage.total_credits
+            : null;
+    if (c != null && !isNaN(c)) u.platformCost = Number(c);
+    return u;
+}
 
     return {
         DEFAULT_PROFILES: DEFAULT_PROFILES,
