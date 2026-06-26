@@ -453,3 +453,10 @@ const API = (function () {
         if (c != null && !isNaN(c)) u.platformCost = Number(c);
         return u;
     }
+
+    return {
+        DEFAULT_PROFILES: DEFAULT_PROFILES,
+        apiF: apiF, streamChat: streamChat,
+        fetchModels: fetchModels, testConnection: testConnection, getKeys: getKeys,
+    };
+})();
