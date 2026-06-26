@@ -513,8 +513,8 @@ function renderEngForm(){
     form.innerHTML=`
         <div class="fg"><label>引擎名称</label><input type="text" id="engName" value="${esc(p.name)}"></div>
         <div class="fg"><label>📡 协议类型</label><select id="engProto">
-            <option value="openai"${p.protocol==='openai'?' selected':''}>OpenAI / 通用（推荐，缓存自动生效）</option>
-            <option value="anthropic"${p.protocol==='anthropic'?' selected':''}>Claude 原生（可选 1 小时缓存）</option>
+            <option value="openai"${p.protocol==='openai'?' selected':''}>OpenAI / 通用</option>
+            <option value="anthropic"${p.protocol==='anthropic'?' selected':''}>Claude 原生（用claude的必选）</option>
             <option value="gemini"${p.protocol==='gemini'?' selected':''}>Gemini 原生</option>
         </select></div>
         <div class="fg"><label>🌐 Base URL</label><input type="text" id="engBase" value="${esc(p.base)}" placeholder="https://api.openai-proxy.org/v1">
@@ -525,7 +525,7 @@ function renderEngForm(){
         <div style="margin-top:14px;padding:12px;background:var(--pri-l);border-radius:10px">
             <div class="pt"><input type="checkbox" id="engUseCache" ${p.useCache?'checked':''}><label for="engUseCache">💰 开启 Prompt 缓存（省 token）</label></div>
             <div id="engCacheBox" style="${p.useCache?'':'display:none'};padding-left:23px;margin-top:6px">
-                <div style="font-size:11px;color:var(--text2);line-height:1.6">给 System Prompt + 历史对话打缓存标记自动省钱。<br>缓存时长由系统自动判断：Claude 原生协议=1 小时，其他=5 分钟。<br>缓存仅影响计费，不影响发送内容（每轮始终发全量对话）。</div>
+                <div style="font-size:11px;color:var(--text2);line-height:1.6">给 System Prompt + 历史对话打缓存标记自动省钱。<br>缓存仅影响计费，不影响发送内容（每轮始终发全量对话）。</div>
             </div>
         </div>
         <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)"><h4 style="font-size:13px;margin-bottom:10px">⚙️ 运行时参数</h4>
@@ -538,7 +538,7 @@ function renderEngForm(){
             <div class="pt"><input type="checkbox" id="engUseFreq" ${p.useFreq?'checked':''}><label for="engUseFreq">🚫 Frequency Penalty 重复惩罚（Gemini不支持）</label></div>
             <div class="ps" id="engFreqBox" style="${p.useFreq?'':'display:none'}"><input type="range" id="engFreq" min="-2" max="2" step="0.1" value="${p.frequency_penalty}"><div>当前值：<span class="pv" id="engFreqV">${p.frequency_penalty}</span></div></div>
         </div>
-        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)"><h4 style="font-size:13px;margin-bottom:8px">💵 费用估算单价（元 / 1M token，选填）</h4>
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)"><h4 style="font-size:13px;margin-bottom:8px">💵 费用估算单价（美元 / 1M token，选填）</h4>
             <div class="fr"><div class="fg"><label>输入</label><input type="number" id="engPriceIn" value="${p.priceIn||0}" step="0.01" min="0"></div><div class="fg"><label>输出</label><input type="number" id="engPriceOut" value="${p.priceOut||0}" step="0.01" min="0"></div></div>
             <div class="fr"><div class="fg"><label>缓存命中(读)</label><input type="number" id="engPriceCR" value="${p.priceCacheRead||0}" step="0.01" min="0"></div><div class="fg"><label>缓存写入</label><input type="number" id="engPriceCW" value="${p.priceCacheWrite||0}" step="0.01" min="0"></div></div>
             <div style="font-size:11px;color:var(--text2)">填了单价后，每条回复下方会显示估算费用。不填则只显示 token 数。</div>
