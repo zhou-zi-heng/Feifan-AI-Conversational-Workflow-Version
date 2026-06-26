@@ -41,12 +41,15 @@ function _countCnPunct(s) {
 }
 function cntW(t) {
     if (!t) return 0;
-    const s = _cleanForCount(t);
-    const han = _countHan(s);
-    const cnPunct = _countCnPunct(s);
-    const eng = (s.match(/[a-zA-Z]+/g) || []).length;
-    const num = (s.match(/\d+/g) || []).length;
-    return han + cnPunct + eng + num;
+    const s = String(t);
+    // 中文字符（含中文标点）—— 对齐 WPS「中文字符」
+    let han;
+    try { han = (s.match(/[\u4e00-\u9fff\u3400-\u4dbf\u{20000}-\u{2a6df}\u3000-\u303f\uff00-\uffef]/gu) || []).length; }
+    catch (e) { han = (s.match(/[\u4e00-\u9fff\u3400-\u4dbf\u3000-\u303f\uff00-\uffef]/g) || []).length; }
+    // 非中文单词（连续字母/数字算一个词）—— 对齐 WPS「非中文单词」
+    const words = (s.match(/[a-zA-Z0-9]+(?:['’\-][a-zA-Z0-9]+)*/g) || []).length;
+    // WPS「字数」= 中文字符 + 非中文单词
+    return han + words;
 }
 function cntDetail(t) {
     const s = _cleanForCount(t || '');
