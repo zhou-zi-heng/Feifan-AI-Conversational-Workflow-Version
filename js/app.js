@@ -1,7 +1,8 @@
 /* ===== 飞凡AI - 主入口 (v2.7.0 功能大合集) ===== */
 /* 工作流 + 文件夹/日期分组/拖拽 + 模式锁定 + 钉钉报警
    + 多协议(OpenAI/Anthropic/Gemini) + Prompt缓存 + token/费用统计 + 多Key轮询 */
-
+/* 美元转人民币预估汇率（美元为准，人民币仅供预估） */
+const USD_TO_CNY = 6.8;
 let S = {
     profiles: {}, chats: {}, chatOrder: [], currentChatId: null,
     currentEngId: 'claude', theme: 'light', snapInterval: 5,
@@ -446,10 +447,9 @@ function formatUsage(u,engId){
     if(cacheRead)parts.push('💰命中'+cacheRead);
     if(cacheWrite)parts.push('✍写'+cacheWrite);
     let costStr='';
-    const p=engId?S.profiles[engId]:null;
-    if(p&&(p.priceIn||p.priceOut||p.priceCacheRead||p.priceCacheWrite)){
-        const cost=(Math.max(0,input-cacheRead-cacheWrite))/1e6*(p.priceIn||0)+output/1e6*(p.priceOut||0)+cacheRead/1e6*(p.priceCacheRead||0)+cacheWrite/1e6*(p.priceCacheWrite||0);
-        if(cost>0)costStr=' ≈¥'+cost.toFixed(4);
+    const cost=calcMsgCost(u,engId);
+    if(cost!=null&&cost>0){
+        costStr=' ≈$'+cost.toFixed(4)+' (¥'+(cost*USD_TO_CNY).toFixed(4)+')';
     }
     return ' | '+parts.join(' ')+costStr;
 }
