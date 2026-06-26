@@ -454,7 +454,6 @@ function renderEngForm(){
             <option value="anthropic"${p.protocol==='anthropic'?' selected':''}>Claude 原生（可选 1 小时缓存）</option>
             <option value="gemini"${p.protocol==='gemini'?' selected':''}>Gemini 原生</option>
         </select></div>
-        </div>
         <div class="fg"><label>🌐 Base URL</label><input type="text" id="engBase" value="${esc(p.base)}" placeholder="https://api.openai-proxy.org/v1">
             <div style="font-size:11px;color:var(--text2);margin-top:4px">OpenAI兼容→ 填带 /v1 的地址；Claude→ 填 .../anthropic；Gemini→ 填 .../google</div></div>
         <div class="fg"><label>🔑 API Key <span style="font-weight:normal;color:var(--text2);font-size:11px">（仅本地存储，不显示）</span></label>
