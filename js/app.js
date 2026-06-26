@@ -476,36 +476,6 @@ function calcMsgCost(u,engId){
         + cacheWrite/1e6*(p.priceCacheWrite||0);
 }
 
-function formatUsage(u,engId){
-    if(!u)return '';
-    const input=u.inputTokens||0,output=u.outputTokens||0;
-    const cacheRead=u.cacheReadTokens||0,cacheWrite=u.cacheWriteTokens||0;
-    // ★ 总数 = 入 + 出 + 缓存命中 + 缓存写入（真实消耗的全部 token）
-    const total=input+output+cacheRead+cacheWrite;
-    const parts=[];
-    parts.push('⬆入'+input);parts.push('⬇出'+output);parts.push('Σ总'+total);
-    if(cacheRead)parts.push('💰命中'+cacheRead);
-    if(cacheWrite)parts.push('✍写'+cacheWrite);
-    let costStr='';
-    const p=engId?S.profiles[engId]:null;
-    if(p&&(p.priceIn||p.priceOut||p.priceCacheRead||p.priceCacheWrite)){
-        let inputCost;
-        if((p.protocol||'openai')==='openai'){
-            // OpenAI 协议：prompt_tokens 已含 cached，需减出去单独按缓存价算
-            inputCost=Math.max(0,input-cacheRead-cacheWrite)/1e6*(p.priceIn||0);
-        }else{
-            // Anthropic / Gemini：input 本身不含缓存，直接全价
-            inputCost=input/1e6*(p.priceIn||0);
-        }
-        const cost=inputCost
-            + output/1e6*(p.priceOut||0)
-            + cacheRead/1e6*(p.priceCacheRead||0)
-            + cacheWrite/1e6*(p.priceCacheWrite||0);
-        if(cost>0)costStr=' ≈¥'+cost.toFixed(4);
-    }
-    return ' | '+parts.join(' ')+costStr;
-}
-
 /* ===== 整段对话累计花费（token + 金额） ===== */
 function calcChatTotal(chat){
     const r={inputTokens:0,outputTokens:0,cacheReadTokens:0,cacheWriteTokens:0,totalTokens:0,cost:0,hasCost:false,hasUsage:false};
