@@ -12,6 +12,7 @@ let S = {
 
 let _saveTimer=null,_saveInProgress=null,_streamCtrl=null,_pendingAtts=[],_attContinuous=false,_exportMode='full';
 let _wfGroup='__all__',_wfPresetId=null;
+let _wfAttContinuous=false;   // 工作流栏独立的持续参考开关
 var _wfAlertCtx=null;
 let _dragChatId=null;
 
@@ -53,6 +54,7 @@ function fixProfileFields(){
         if(p.temperature===undefined)p.temperature=0.7;if(p.max_tokens===undefined)p.max_tokens=4096;
         if(p.top_p===undefined)p.top_p=1;if(p.frequency_penalty===undefined)p.frequency_penalty=0;
         if(p.protocol===undefined)p.protocol='openai';
+        if(p.engineType===undefined)p.engineType='chat';        
         p.authType='bearer';
         if(p.useCache===undefined)p.useCache=false;
         p.cacheTTL=(p.protocol==='anthropic')?'1h':'5m';
@@ -178,8 +180,10 @@ function renderWorkflow(){
         else{_wfPresetId=presets.length?presets[0].id:null;if(_wfPresetId)psSel.value=_wfPresetId;}
     }
     renderWfSteps();
+    renderWfAtts();
 }
 function onWfGroupChange(v){_wfGroup=v||'__all__';_wfPresetId=null;renderWorkflow();}
+
 function onWfSearch(){renderWorkflow();}
 function onWfPresetChange(v){_wfPresetId=v||null;renderWfSteps();}
 
@@ -213,6 +217,34 @@ function renderWfSteps(){
     });
 }
 
+/* ===== 工作流附件区（复用 _pendingAtts） ===== */
+function renderWfAtts(){
+    const box=document.getElementById('wfAttList');
+    const cnt=document.getElementById('wfAttCount');
+    if(!box)return;
+    if(!_pendingAtts.length){
+        box.innerHTML='<div style="font-size:11px;color:var(--text2);padding:2px 0">（暂无附件）</div>';
+        if(cnt)cnt.textContent='';
+        return;
+    }
+    if(cnt)cnt.textContent='('+_pendingAtts.length+')';
+    box.innerHTML='';
+    _pendingAtts.forEach((a,idx)=>{
+        const item=document.createElement('div');item.className='att-item';
+        const icon=a.type==='image'?'🖼️':a.type==='table'?'📊':a.type==='document'?'📄':'📝';
+        const nm=document.createElement('span');nm.className='ai-nm';nm.textContent=icon+' '+a.fileName;item.appendChild(nm);
+        const sz=document.createElement('span');sz.className='ai-sz';sz.textContent=a.type==='image'?(a.meta.sizeText||''):(cntW(a.text)+' 字');item.appendChild(sz);
+        const rm=document.createElement('button');rm.className='ai-rm';rm.textContent='×';rm.title='移除';
+        rm.onclick=()=>{_pendingAtts.splice(idx,1);renderWfAtts();renderAttList();};
+        item.appendChild(rm);box.appendChild(item);
+    });
+}
+function wfAttInput(inputEl){Upload.fromInput(inputEl);}
+function updWfAttCont(){
+    const chk=document.getElementById('wfAttCont');
+    _wfAttContinuous=chk?chk.checked:false;
+}
+
 async function wfSend(stepId){
     const c=curChat();
     if(c&&chatMode(c)!=='workflow'){toast('当前对话不是工作流模式','er');return;}
@@ -244,7 +276,12 @@ async function wfSend(stepId){
     catch(e){toast('指令解密失败：'+e.message,'er');return;}
     if(built.missing&&built.missing.length){toast('请填写所有空位后再发送','er');return;}
     _wfAlertCtx={user:S.userName||'未署名',preset:presetName,step:built.stepName,input:joinedInput.trim()};
-    await coreSend({visibleText:built.displayText,actualText:built.sendText,titleHint:built.stepName,_wfLeakCheck:true});
+
+    // 携带当前待发送附件（一次性）
+    const attsForWf=_pendingAtts.slice();
+    _pendingAtts=[];renderAttList();renderWfAtts();
+
+    await coreSend({visibleText:built.displayText,actualText:built.sendText,titleHint:built.stepName,_wfLeakCheck:true,atts:attsForWf});
     const inputs=Workflow.getInputs(_wfPresetId,stepId);
     inputs.forEach(inp=>{
         if(inp.kind==='input'){const el=document.getElementById('wfin_'+stepId+'_'+inp.segIndex);if(el)el.value=inp.defaultValue||'';}
@@ -382,10 +419,12 @@ function renderSB(){
 }
 function renderBadge(){
     const p=curProfile();
-    const protoTag=p?(p.protocol==='anthropic'?' [Claude原生]':p.protocol==='gemini'?' [Gemini原生]':''):'';
-    const cacheTag=(p&&p.useCache)?' 💰缓存':'';
+    const isImg=p&&p.engineType==='image';
+    const protoTag=p?(isImg?' [🎨生图]':p.protocol==='anthropic'?' [Claude原生]':p.protocol==='gemini'?' [Gemini原生]':''):'';
+    const cacheTag=(p&&p.useCache&&!isImg)?' 💰缓存':'';
     document.getElementById('badge').innerHTML=p?'当前引擎: <strong>'+esc(p.name)+'</strong>'+esc(protoTag)+esc(cacheTag)+'<br>模型: '+esc(p.model||'-'):'请先在 ⚙️ 中配置引擎';
 }
+
 
 /* ===== 渲染消息区 + token/费用信息 ===== */
 function renderMs(){
@@ -512,7 +551,11 @@ function renderEngForm(){
     const p=S.profiles[S.currentEngId];if(!p){form.innerHTML='<p style="color:var(--text2)">请选择一个引擎</p>';return;}
     form.innerHTML=`
         <div class="fg"><label>引擎名称</label><input type="text" id="engName" value="${esc(p.name)}"></div>
-        <div class="fg"><label>📡 协议类型</label><select id="engProto">
+        <div class="fg"><label>🔧 引擎类型</label><select id="engType" onchange="onEngTypeChange()">
+            <option value="chat"${p.engineType!=='image'?' selected':''}>💬 对话</option>
+            <option value="image"${p.engineType==='image'?' selected':''}>🎨 生图</option>
+        </select><div style="font-size:11px;color:var(--text2);margin-top:4px">生图引擎：切到它后，输入框打描述即生成图片（模型如 openai/gpt-image-2，手动填）</div></div>
+        <div class="fg"${p.engineType==='image'?' style="display:none"':''} id="engProtoBox"><label>📡 协议类型</label><select id="engProto">
             <option value="openai"${p.protocol==='openai'?' selected':''}>OpenAI / 通用</option>
             <option value="anthropic"${p.protocol==='anthropic'?' selected':''}>Claude 原生（用claude的必选）</option>
             <option value="gemini"${p.protocol==='gemini'?' selected':''}>Gemini 原生</option>
@@ -545,7 +588,14 @@ function renderEngForm(){
         </div>
         <div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap"><button class="btn btn-p" onclick="saveEng()">💾 保存配置</button><button class="btn" onclick="tConn()" id="tConnBtn">🔑 测试连通</button>${API.DEFAULT_PROFILES[p.id]?'':'<button class="btn btn-d" onclick="delEng()">🗑️ 删除</button>'}</div>
     `;
+    // 生图引擎隐藏缓存/运行时参数（生图不需要）
+    if(p.engineType==='image'){
+        const boxes=['engUseCache','engUseTemp','engUseMax','engUseTopP','engUseFreq'];
+        // 隐藏整个运行时参数和缓存区块的父容器
+        const cacheBlock=form.querySelector('#engUseCache');if(cacheBlock)cacheBlock.closest('div[style*="background"]').style.display='none';
+    }
     bindEngEvents(p);
+
 }
 
 function bindEngEvents(p){
@@ -561,11 +611,20 @@ function bindEngEvents(p){
 }
 
 function setMax(val){document.getElementById('engMax').value=val;}
+function onEngTypeChange(){
+    const t=document.getElementById('engType').value;
+    const p=S.profiles[S.currentEngId];if(!p)return;
+    p.engineType=t;
+    renderEngForm();
+}
 
 function saveEng(){
     const p=S.profiles[S.currentEngId];if(!p)return;
     p.name=document.getElementById('engName').value.trim()||p.name;
-    p.protocol=document.getElementById('engProto').value;
+    const etEl=document.getElementById('engType');if(etEl)p.engineType=etEl.value;
+    const protoEl=document.getElementById('engProto');
+    if(protoEl)p.protocol=protoEl.value;
+
     
     p.base=document.getElementById('engBase').value.trim();
     p.key=document.getElementById('engKey').value.trim();
@@ -612,7 +671,7 @@ async function tConn(){
 function addEng(){
     const name=prompt('新引擎名称：','我的引擎');if(!name||!name.trim())return;
     const id='custom_'+gId().slice(0,8);
-    S.profiles[id]={id:id,name:name.trim(),protocol:'openai',authType:'bearer',base:'https://api.openai-proxy.org/v1',key:'',model:'gpt-4o-mini',useTemp:true,temperature:0.7,useMax:true,max_tokens:4096,useTopP:false,top_p:1,useFreq:false,frequency_penalty:0,useCache:false,cacheTTL:'5m',priceIn:0,priceOut:0,priceCacheRead:0,priceCacheWrite:0};
+    S.profiles[id]={id:id,name:name.trim(),engineType:'chat',protocol:'openai',authType:'bearer',base:'https://api.openai-proxy.org/v1',key:'',model:'gpt-4o-mini',useTemp:true,temperature:0.7,useMax:true,max_tokens:4096,useTopP:false,top_p:1,useFreq:false,frequency_penalty:0,useCache:false,cacheTTL:'5m',priceIn:0,priceOut:0,priceCacheRead:0,priceCacheWrite:0};
     S.currentEngId=id;scheduleSave();renderEngTabs();renderEngForm();renderSB();renderMs();
 }
 
@@ -791,11 +850,61 @@ async function send(){
     if(c&&chatMode(c)==='workflow'){
         if(text&&guardSensitive(text,'工作流·自由输入'))return;
     }
+    const profile=curProfile();
+    /* ★ 生图引擎：走生图逻辑 */
+    if(profile&&profile.engineType==='image'){
+        if(!text){toast('请输入图片描述（prompt）','er');return;}
+        inp.value='';aRsz(inp);
+        await coreSendImage(text);
+        return;
+    }
     const userVisibleText=text||'(已上传 '+_pendingAtts.length+' 个附件)';
     const attsForUser=_pendingAtts.slice();
     inp.value='';aRsz(inp);_pendingAtts=[];renderAttList();
     await coreSend({visibleText:userVisibleText,actualText:text,atts:attsForUser,titleHint:text});
 }
+
+/* ===== 生图核心 ===== */
+async function coreSendImage(prompt){
+    let c=curChat();if(!c){newChat();c=curChat();}
+    const profile=curProfile();
+    if(!profile||!profile.key){toast('请先在 ⚙️ 中配置引擎 API Key','er');openM('set');return;}
+
+    const userMsg={id:gId(),role:'user',content:prompt,_actual:prompt,_time:nowTime()};
+    c.messages.push(userMsg);
+    const aiMsg={id:gId(),role:'assistant',content:'🎨 正在生成图片...',_streaming:true,_time:nowTime(),_engId:S.currentEngId,_isImage:true};
+    c.messages.push(aiMsg);
+
+    if(!c.modeLocked){if(!c.mode)c.mode=(S.uiMode==='workflow')?'workflow':'free';c.modeLocked=true;c.title=buildTitleWithSuffix(c.title,c.mode);}
+    const bareTitle=(c.title||'').replace(/-自由$/,'').replace(/-工作流$/,'').trim();
+    if((bareTitle===''||bareTitle==='新对话')&&c.messages.length<=2){c.title=buildTitleWithSuffix(prompt.slice(0,24),chatMode(c));}
+    c.updatedAt=Date.now();
+    renderMs();renderSB();
+    await saveNow();
+
+    const sendBtn=document.getElementById('sendBtn');sendBtn.classList.add('stop');sendBtn.textContent='■';
+    const area=document.getElementById('msgsArea');const lastMsgEl=area.querySelector('.msg:last-child .bub');
+
+    _streamCtrl=API.generateImage(profile,prompt,{size:'1024x1024',n:1},{
+        onStart:()=>{},
+        onImage:async(imgs)=>{
+            // 用 markdown 图片语法存进 content，渲染时变 <img>
+            const md=imgs.map((u,i)=>'![生成图片'+(i+1)+']('+u+')').join('\n\n');
+            aiMsg.content=md;aiMsg._streaming=false;c.updatedAt=Date.now();_streamCtrl=null;
+            sendBtn.classList.remove('stop');sendBtn.textContent='➤';
+            if(lastMsgEl)UI.fullRender(lastMsgEl,md);
+            await saveNow();renderMs();renderSB();
+            if(typeof Archive!=='undefined')Archive.notifyActivity();
+        },
+        onError:async(err)=>{
+            aiMsg.content='❌ 生图失败：'+err.message;aiMsg._streaming=false;aiMsg._interrupted=true;_streamCtrl=null;
+            sendBtn.classList.remove('stop');sendBtn.textContent='➤';
+            if(lastMsgEl)UI.fullRender(lastMsgEl,aiMsg.content);
+            await saveNow();toast('生图失败：'+err.message,'er');
+        },
+    });
+}
+
 
 async function regenerate(msg){
     const c=curChat();if(!c)return;
@@ -861,15 +970,24 @@ async function handleUploadedFiles(files){
     let okCount=0,failCount=0;
     results.forEach(r=>{if(r.ok){_pendingAtts.push(r.result);okCount++;}else{failCount++;toast('❌ '+r.file.name+'：'+r.error,'er');}});
 
-    /* ★ 持续参考修复：实时读勾选框 + 没会话先建 + 明确提示 */
+    /* 持续参考：底部 attCont 或工作流栏 wfAttCont 任一勾选即生效 */
     const contChk=document.getElementById('attCont');
-    const isContinuous=contChk?contChk.checked:_attContinuous;
+    const wfContChk=document.getElementById('wfAttCont');
+    const isContinuous=(contChk&&contChk.checked)||(wfContChk&&wfContChk.checked)||_attContinuous||_wfAttContinuous;
+
     if(isContinuous&&okCount>0){
         let c=curChat();if(!c){newChat();c=curChat();}
         if(c){
             if(!c.knowledgeBase)c.knowledgeBase=[];
             let addedToKB=0;
-            results.forEach(r=>{if(r.ok){c.knowledgeBase.push({id:gId(),name:r.result.fileName,type:r.result.type,text:r.result.text||'',dataUrl:r.result.dataUrl||null,meta:r.result.meta||{},addedAt:Date.now()});addedToKB++;}});
+            // 加入知识库后，从待发送区移除（避免既常驻又一次性重复发）
+            results.forEach(r=>{
+                if(r.ok){
+                    c.knowledgeBase.push({id:gId(),name:r.result.fileName,type:r.result.type,text:r.result.text||'',dataUrl:r.result.dataUrl||null,meta:r.result.meta||{},addedAt:Date.now()});
+                    const pi=_pendingAtts.indexOf(r.result);if(pi>-1)_pendingAtts.splice(pi,1);
+                    addedToKB++;
+                }
+            });
             c.updatedAt=Date.now();await saveNow();renderKBList();
             if(addedToKB>0)toast('📚 已加入持续参考（'+addedToKB+' 个文件），后续每轮都会自动参考');
         }
@@ -877,7 +995,9 @@ async function handleUploadedFiles(files){
         if(okCount>0)toast('✅ 已解析 '+okCount+' 个文件'+(failCount?'（'+failCount+' 失败）':''));
     }
     renderAttList();
+    if(typeof renderWfAtts==='function')renderWfAtts();   // ★ 同步刷新工作流附件区
 }
+
 
 function renderAttList(){
     const box=document.getElementById('attListBox'),list=document.getElementById('attList'),cnt=document.getElementById('attCount'),btn=document.getElementById('attBtn');
@@ -1004,7 +1124,27 @@ async function initApp(){
         toast('✅ 飞凡AI 就绪');
     }catch(e){console.error('[InitApp]',e);toast('初始化失败：'+e.message,'er');}
 }
-function initUpload(){if(typeof Upload==='undefined')return;Upload.onFiles(handleUploadedFiles);Upload.init({dropTarget:document.getElementById('msgsArea'),dropMask:document.getElementById('dropMask'),paste:true});}
+function initUpload(){
+    if(typeof Upload==='undefined')return;
+    Upload.onFiles(handleUploadedFiles);
+    Upload.init({dropTarget:document.getElementById('msgsArea'),dropMask:document.getElementById('dropMask'),paste:true});
+    // 让工作流栏也能接收拖拽文件
+    const wfBar=document.getElementById('wfBar');
+    if(wfBar){
+        wfBar.addEventListener('dragover',e=>{
+            if(e.dataTransfer&&Array.from(e.dataTransfer.types||[]).includes('Files')){
+                e.preventDefault();e.dataTransfer.dropEffect='copy';wfBar.style.outline='2px dashed var(--pri,#667eea)';wfBar.style.outlineOffset='-4px';
+            }
+        });
+        wfBar.addEventListener('dragleave',e=>{if(e.target===wfBar)wfBar.style.outline='';});
+        wfBar.addEventListener('drop',e=>{
+            if(e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files.length){
+                e.preventDefault();wfBar.style.outline='';handleUploadedFiles(e.dataTransfer.files);
+            }
+        });
+    }
+}
+
 function initSnapshot(){if(typeof Snapshot==='undefined')return;Snapshot.startAuto(S.snapInterval||5,()=>S);}
 async function initArchive(){if(typeof Archive==='undefined')return;await Archive.init({getState:()=>S,buildHtml:(chat)=>buildArchiveHtml(chat),intervalMin:S.archiveInterval!==undefined?S.archiveInterval:10,debounceMin:1});}
 async function initWorkflow(){if(typeof Workflow==='undefined')return;await Workflow.load('presets.json');renderMode();}
