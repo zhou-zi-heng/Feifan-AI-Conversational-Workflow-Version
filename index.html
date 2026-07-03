@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>6.26版飞凡AI对话界面</title>
+    <title>7.3版飞凡AI对话界面</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
     <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
     <link rel="manifest" href="/manifest.json">
@@ -52,6 +52,16 @@
         .wf-blank-in:empty::before{content:attr(data-ph);color:var(--text2);font-weight:400;opacity:.6}
         .wf-blank-in:focus{background:rgba(102,126,234,.14)}
         @media (max-width:768px){.wf-side{position:fixed;top:0;right:0;width:85%;max-width:340px;z-index:200;box-shadow:-4px 0 20px rgba(0,0,0,.2)}}
+
+        /* ★ 新增：工作流附件区 */
+        .wf-att-box{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:12px}
+        .wf-att-head{display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:600;margin-bottom:6px}
+        .wf-att-add{font-size:11px;color:var(--pri);cursor:pointer;padding:2px 8px;border:1px solid var(--pri);border-radius:6px}
+        .wf-att-add:hover{background:var(--pri-l)}
+        .wf-att-list{display:flex;flex-direction:column;gap:3px;max-height:140px;overflow-y:auto;margin-bottom:4px}
+        .wf-att-cont{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;color:var(--text)}
+        .wf-att-cont input[type="checkbox"]{width:14px;height:14px;accent-color:var(--pri)}
+        .wf-att-tip{font-size:10px;color:var(--text2);margin-top:4px;line-height:1.5}
     </style>
 </head>
 <body>
@@ -127,6 +137,20 @@
             <button class="wf-side-x" onclick="setMode('chat')" title="关闭工作流">×</button>
         </div>
         <div class="wf-side-body">
+            <!-- ★ 新增：工作流附件区（含独立的持续参考勾选框） -->
+            <div class="wf-att-box">
+                <div class="wf-att-head">
+                    <span>📎 步骤附件 <span id="wfAttCount" style="color:var(--pri)"></span></span>
+                    <label class="wf-att-add">＋上传<input type="file" multiple onchange="wfAttInput(this)" style="display:none"></label>
+                </div>
+                <div id="wfAttList" class="wf-att-list"></div>
+                <div class="wf-att-cont">
+                    <input type="checkbox" id="wfAttCont" onchange="updWfAttCont()">
+                    <label for="wfAttCont">🔄 持续参考（加入知识库，每轮都带）</label>
+                </div>
+                <div class="wf-att-tip">💡 也可直接把文件拖到本栏。不勾选=仅随下一次"用此步骤发送"提交一次；勾选=常驻知识库。</div>
+            </div>
+
             <div class="wf-row"><select id="wfGroupSel" onchange="onWfGroupChange(this.value)"></select></div>
             <div class="wf-row"><input type="text" id="wfSearch" class="wf-search" placeholder="🔍 搜索预设名..." oninput="onWfSearch()"></div>
             <div class="wf-row"><select id="wfPresetSel" onchange="onWfPresetChange(this.value)"></select></div>
@@ -213,7 +237,3 @@
 
 </body>
 </html>
-
-
-
-
