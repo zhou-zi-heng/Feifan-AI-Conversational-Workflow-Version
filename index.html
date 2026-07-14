@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>7.3版飞凡AI对话界面</title>
+    <title>7.14版飞凡AI对话界面</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
     <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
     <link rel="manifest" href="/manifest.json">
@@ -95,6 +95,7 @@
             </div>
             <div class="hdr-acts">
                 <button onclick="openM('cs')" title="会话设置">🎛️</button>
+                <button onclick="toggleChunk()" id="chunkBtn" title="物理打标（关）">📐</button>                
                 <button onclick="openM('exp')" title="导出">📥</button>
                 <button onclick="shareC()" title="加密分享">🔗</button>
                 <button onclick="pinC()" title="置顶" id="pinBtn">📌</button>
@@ -207,6 +208,9 @@
     </div>
     <div id="iosW" style="display:none;padding:10px;background:#fff3cd;border-radius:8px;font-size:12px;color:#856404;margin-top:10px">⚠️ iOS Safari 可能清理数据，请定期导出。</div>
 </div></div></div>
+    
+<!-- 模态框：打标预览 -->
+<div class="mo" id="mo-chunk-preview"><div class="md" style="max-width:700px;max-height:88vh"><div class="md-h"><h2>📐 打标预览（发给AI的文本）</h2><button class="md-x" onclick="closeM('chunk-preview')">×</button></div><div class="md-b"><div style="font-size:12px;color:var(--text2);margin-bottom:8px">以下为打标后实际发送给AI的文本。工作流隐藏指令不会显示。</div><textarea id="chunkPreviewTA" readonly style="width:100%;height:60vh;font-family:'SF Mono',Consolas,monospace;font-size:12px;line-height:1.6;border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--bg);color:var(--text);resize:vertical;white-space:pre-wrap"></textarea><div style="margin-top:10px;display:flex;gap:8px"><button class="btn btn-p btn-s" onclick="copyChunkPreview()">📋 复制全部</button><button class="btn btn-s" onclick="closeM('chunk-preview')">关闭</button></div></div></div></div>
 
 <!-- 模态框：存档授权提示 -->
 <div class="mo" id="mo-auth"><div class="md" style="max-width:420px;text-align:center"><div class="md-b" style="padding:28px 24px">
@@ -229,6 +233,7 @@
 <script src="js/parsers/office.js?v=2.7.0"></script>
 <script src="js/parsers/pdf.js?v=2.7.0"></script>
 <script src="js/parser.js?v=2.7.0"></script>
+<script src="js/chunker.js?v=2.7.0"></script>
 <script src="js/upload.js?v=2.7.0"></script>
 <script src="js/snapshot.js?v=2.7.0"></script>
 <script src="js/archive.js?v=2.7.0"></script>
