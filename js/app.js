@@ -1,6 +1,7 @@
 /* ===== 飞凡AI - 主入口 (v2.7.0 功能大合集) ===== */
 /* 工作流 + 文件夹/日期分组/拖拽 + 模式锁定 + 钉钉报警
-   + 多协议(OpenAI/Anthropic/Gemini) + Prompt缓存 + token/费用统计 + 多Key轮询 */
+   + 多协议(OpenAI/Anthropic/Gemini) + Prompt缓存 + token/费用统计 + 多Key轮询
+   + 物理打标(Chunker) */
 /* 美元转人民币预估汇率（美元为准，人民币仅供预估） */
 const USD_TO_CNY = 6.8;
 let S = {
@@ -12,7 +13,8 @@ let S = {
 
 let _saveTimer=null,_saveInProgress=null,_streamCtrl=null,_pendingAtts=[],_attContinuous=false,_exportMode='full';
 let _wfGroup='__all__',_wfPresetId=null;
-let _wfAttContinuous=false;   // 工作流栏独立的持续参考开关
+let _wfAttContinuous=false;
+let _attChunk=false;        // ★ 物理打标全局开关
 var _wfAlertCtx=null;
 let _dragChatId=null;
 
@@ -222,28 +224,45 @@ function renderWfAtts(){
     const box=document.getElementById('wfAttList');
     const cnt=document.getElementById('wfAttCount');
     if(!box)return;
+    // ★ 顶部状态：持续参考开关 + 知识库常驻数
+    const c=curChat();
+    const kbCount=(c&&c.knowledgeBase)?c.knowledgeBase.filter(k=>k.type!=='image'&&k.text).length:0;
+    const contOn=document.getElementById('wfAttCont')&&document.getElementById('wfAttCont').checked;
+    let statusHtml='<div style="font-size:11px;padding:4px 6px;margin-bottom:4px;border-radius:5px;background:var(--pri-l);color:var(--text2);line-height:1.6">'
+        +'🔄 持续参考：<b style="color:'+(contOn?'#10b981':'#999')+'">'+(contOn?'开（进知识库常驻）':'关（仅发一次）')+'</b>';
+    if(kbCount>0)statusHtml+='<br>📚 知识库常驻：<b style="color:var(--pri)">'+kbCount+' 个文件</b>（每步自动携带，去🎛️会话设置可预览）';
+    statusHtml+='</div>';
     if(!_pendingAtts.length){
-        box.innerHTML='<div style="font-size:11px;color:var(--text2);padding:2px 0">（暂无附件）</div>';
+        box.innerHTML=statusHtml+'<div style="font-size:11px;color:var(--text2);padding:2px 0">（待发送区暂无附件）</div>';
         if(cnt)cnt.textContent='';
         return;
     }
     if(cnt)cnt.textContent='('+_pendingAtts.length+')';
-    box.innerHTML='';
+    box.innerHTML=statusHtml;
     _pendingAtts.forEach((a,idx)=>{
         const item=document.createElement('div');item.className='att-item';
         const icon=a.type==='image'?'🖼️':a.type==='table'?'📊':a.type==='document'?'📄':'📝';
-        const nm=document.createElement('span');nm.className='ai-nm';nm.textContent=icon+' '+a.fileName;item.appendChild(nm);
+        const nm=document.createElement('span');nm.className='ai-nm';nm.textContent=icon+' '+a.fileName;nm.title=a.fileName;item.appendChild(nm);
         const sz=document.createElement('span');sz.className='ai-sz';sz.textContent=a.type==='image'?(a.meta.sizeText||''):(cntW(a.text)+' 字');item.appendChild(sz);
-        const rm=document.createElement('button');rm.className='ai-rm';rm.textContent='×';rm.title='移除';
+        // ★ 打标开启且为文本类 → 预览按钮
+        if(_attChunk&&a.type!=='image'&&a.text){
+            const pv=document.createElement('button');pv.className='ai-rm';pv.textContent='👁';pv.title='预览此文档打标';pv.style.color='var(--pri)';pv.style.flexShrink='0';
+            pv.onclick=()=>previewChunkObj(a);
+            item.appendChild(pv);
+        }
+        const rm=document.createElement('button');rm.className='ai-rm';rm.textContent='×';rm.title='移除';rm.style.flexShrink='0';
         rm.onclick=()=>{_pendingAtts.splice(idx,1);renderWfAtts();renderAttList();};
         item.appendChild(rm);box.appendChild(item);
     });
 }
+
 function wfAttInput(inputEl){Upload.fromInput(inputEl);}
 function updWfAttCont(){
     const chk=document.getElementById('wfAttCont');
     _wfAttContinuous=chk?chk.checked:false;
+    renderWfAtts();  // ★ 立刻刷新状态显示
 }
+
 
 async function wfSend(stepId){
     const c=curChat();
@@ -437,7 +456,7 @@ function renderMs(){
     appendUsageInfo(area,c);
     const ti=document.getElementById('titleIn');if(ti)ti.value=c.title||'';
     document.getElementById('pinBtn').textContent=c.isPinned?'📍':'📌';
-    renderChatTotal(c);   // ★ 新增
+    renderChatTotal(c);
 }
 
 /* ===== 标题栏右侧显示本对话累计花费 ===== */
@@ -495,7 +514,6 @@ function formatUsage(u,engId){
 /* ===== 单条费用计算（按协议区分缓存；优先用平台返回费用） ===== */
 function calcMsgCost(u,engId){
     if(!u)return null;
-    // 平台直接返回了费用 → 最准，优先用
     if(u.platformCost!=null)return u.platformCost;
     const p=engId?S.profiles[engId]:null;
     if(!p||!(p.priceIn||p.priceOut||p.priceCacheRead||p.priceCacheWrite))return null;
@@ -503,10 +521,8 @@ function calcMsgCost(u,engId){
     const cacheRead=u.cacheReadTokens||0,cacheWrite=u.cacheWriteTokens||0;
     let inputCost;
     if((u.mode||p.protocol||'openai')==='openai'){
-        // OpenAI 协议：prompt_tokens 已含 cached，需减出去单独按缓存价算
         inputCost=Math.max(0,input-cacheRead-cacheWrite)/1e6*(p.priceIn||0);
     }else{
-        // Anthropic / Gemini：input 本身不含缓存，直接全价
         inputCost=input/1e6*(p.priceIn||0);
     }
     return inputCost
@@ -588,10 +604,7 @@ function renderEngForm(){
         </div>
         <div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap"><button class="btn btn-p" onclick="saveEng()">💾 保存配置</button><button class="btn" onclick="tConn()" id="tConnBtn">🔑 测试连通</button>${API.DEFAULT_PROFILES[p.id]?'':'<button class="btn btn-d" onclick="delEng()">🗑️ 删除</button>'}</div>
     `;
-    // 生图引擎隐藏缓存/运行时参数（生图不需要）
     if(p.engineType==='image'){
-        const boxes=['engUseCache','engUseTemp','engUseMax','engUseTopP','engUseFreq'];
-        // 隐藏整个运行时参数和缓存区块的父容器
         const cacheBlock=form.querySelector('#engUseCache');if(cacheBlock)cacheBlock.closest('div[style*="background"]').style.display='none';
     }
     bindEngEvents(p);
@@ -712,7 +725,42 @@ async function renderStorageInfo(){
     try{const info=await DB.getStorageInfo();el.innerHTML='已用：<strong>'+info.usedText+'</strong><br>配额：'+info.quotaText+'（'+info.percent+'%）<br>持久化：'+(info.persisted?'✅ 已启用':'⚠️ 未启用')+'<br>版本：'+APP_VERSION;}
     catch(e){el.textContent='存储信息获取失败';}
 }
-/* ===== 核心发送（融合：工作流泄露检测 + 多协议 + token统计 + 模式锁定 + 全量发送 + 知识库常驻） ===== */
+
+/* ===== 物理打标全局开关 ===== */
+function toggleChunk(){
+    _attChunk=!_attChunk;
+    const btn=document.getElementById('chunkBtn');
+    if(btn){
+        btn.style.color=_attChunk?'#667eea':'';
+        btn.style.background=_attChunk?'var(--pri-l)':'';
+        btn.title='物理打标（'+(_attChunk?'开':'关')+'）';
+    }
+    toast(_attChunk?'📐 物理打标已开启（对话/工作流/知识库统一生效）':'📐 物理打标已关闭');
+    renderAttList();
+}
+
+
+/* ===== 打标预览 ===== */
+function previewChunkObj(att){
+    if(typeof Chunker==='undefined'){toast('打标引擎未加载','er');return;}
+    if(!att||!att.text){toast('该附件无文本，无法预览','er');return;}
+    const ta=document.getElementById('chunkPreviewTA');
+    if(ta)ta.value=Chunker.previewOne(att);
+    openM('chunk-preview');
+}
+
+
+function copyChunkPreview(){
+    const ta=document.getElementById('chunkPreviewTA');
+    if(!ta||!ta.value){toast('无内容','er');return;}
+    try{
+        navigator.clipboard.writeText(ta.value).then(()=>toast('✅ 已复制打标文本'));
+    }catch(e){
+        ta.select();document.execCommand('copy');toast('✅ 已复制');
+    }
+}
+
+/* ===== 核心发送（融合：工作流泄露检测 + 多协议 + token统计 + 模式锁定 + 全量发送 + 知识库常驻 + 物理打标） ===== */
 async function coreSend(opts){
     opts=opts||{};
     let c=curChat();if(!c){newChat();c=curChat();}
@@ -722,16 +770,30 @@ async function coreSend(opts){
     const visibleText=opts.visibleText,actualText=opts.actualText;
     const attsForUser=opts.atts||[];
 
+    // ★ 物理打标处理（全局开关 _attChunk）
+    let processedAtts=attsForUser;
+    if(_attChunk&&typeof Chunker!=='undefined'){
+        processedAtts=Chunker.chunkAttachments(attsForUser,{});
+    }
+
     // 本轮一次性附件（图片 + 文本）
     let attachedText='';const imageAtts=[];
-    attsForUser.forEach(a=>{if(a.type==='image')imageAtts.push(a);else if(a.text)attachedText+='\n\n=== 📎 附件：'+a.fileName+' ===\n'+a.text+'\n=== 附件结束 ===\n';});
+    processedAtts.forEach(a=>{if(a.type==='image')imageAtts.push(a);else if(a.text)attachedText+='\n\n=== 📎 附件：'+a.fileName+' ===\n'+a.text+'\n=== 附件结束 ===\n';});
 
     // 知识库（持续参考）：作为常驻上下文，每轮都注入
     let kbText='';const kbImages=[];
     if(c.knowledgeBase&&c.knowledgeBase.length){
         c.knowledgeBase.forEach(k=>{
             if(k.type==='image')kbImages.push({fileName:k.name,dataUrl:k.dataUrl,type:'image'});
-            else if(k.text)kbText+='\n\n=== 📚 知识库：'+k.name+' ===\n'+k.text+'\n=== 知识库结束 ===\n';
+            else if(k.text){
+                // ★ 知识库也跟打标开关走
+                let body=k.text;
+                if(_attChunk&&typeof Chunker!=='undefined'){
+                    const r=Chunker.chunk(k.text,{});
+                    body=r.marked;
+                }
+                kbText+='\n\n=== 📚 知识库：'+k.name+' ===\n'+body+'\n=== 知识库结束 ===\n';
+            }
         });
     }
     const composedUserText=(attachedText?attachedText+'\n':'')+actualText;
@@ -846,12 +908,10 @@ async function send(){
     const inp=document.getElementById('uIn');const text=(inp.value||'').trim();
     if(!text&&!_pendingAtts.length){toast('请输入内容或上传附件','er');return;}
     const c=curChat();
-    /* 仅工作流模式做敏感词检测；自由模式完全不受限 */
     if(c&&chatMode(c)==='workflow'){
         if(text&&guardSensitive(text,'工作流·自由输入'))return;
     }
     const profile=curProfile();
-    /* ★ 生图引擎：走生图逻辑 */
     if(profile&&profile.engineType==='image'){
         if(!text){toast('请输入图片描述（prompt）','er');return;}
         inp.value='';aRsz(inp);
@@ -888,7 +948,6 @@ async function coreSendImage(prompt){
     _streamCtrl=API.generateImage(profile,prompt,{size:'1024x1024',n:1},{
         onStart:()=>{},
         onImage:async(imgs)=>{
-            // 用 markdown 图片语法存进 content，渲染时变 <img>
             const md=imgs.map((u,i)=>'![生成图片'+(i+1)+']('+u+')').join('\n\n');
             aiMsg.content=md;aiMsg._streaming=false;c.updatedAt=Date.now();_streamCtrl=null;
             sendBtn.classList.remove('stop');sendBtn.textContent='➤';
@@ -970,7 +1029,6 @@ async function handleUploadedFiles(files){
     let okCount=0,failCount=0;
     results.forEach(r=>{if(r.ok){_pendingAtts.push(r.result);okCount++;}else{failCount++;toast('❌ '+r.file.name+'：'+r.error,'er');}});
 
-    /* 持续参考：底部 attCont 或工作流栏 wfAttCont 任一勾选即生效 */
     const contChk=document.getElementById('attCont');
     const wfContChk=document.getElementById('wfAttCont');
     const isContinuous=(contChk&&contChk.checked)||(wfContChk&&wfContChk.checked)||_attContinuous||_wfAttContinuous;
@@ -980,7 +1038,6 @@ async function handleUploadedFiles(files){
         if(c){
             if(!c.knowledgeBase)c.knowledgeBase=[];
             let addedToKB=0;
-            // 加入知识库后，从待发送区移除（避免既常驻又一次性重复发）
             results.forEach(r=>{
                 if(r.ok){
                     c.knowledgeBase.push({id:gId(),name:r.result.fileName,type:r.result.type,text:r.result.text||'',dataUrl:r.result.dataUrl||null,meta:r.result.meta||{},addedAt:Date.now()});
@@ -995,8 +1052,14 @@ async function handleUploadedFiles(files){
         if(okCount>0)toast('✅ 已解析 '+okCount+' 个文件'+(failCount?'（'+failCount+' 失败）':''));
     }
     renderAttList();
-    if(typeof renderWfAtts==='function')renderWfAtts();   // ★ 同步刷新工作流附件区
+    // ★ 自动展开附件面板，让用户看到刚拖入/上传的文件
+    if(_pendingAtts.length){
+        const pan=document.getElementById('attPan');
+        if(pan)pan.classList.add('show');
+    }
+    if(typeof renderWfAtts==='function')renderWfAtts();
 }
+
 
 
 function renderAttList(){
@@ -1008,7 +1071,13 @@ function renderAttList(){
         const icon=a.type==='image'?'🖼️':a.type==='table'?'📊':a.type==='document'?'📄':'📝';
         const nm=document.createElement('span');nm.className='ai-nm';nm.textContent=icon+' '+a.fileName;item.appendChild(nm);
         const sz=document.createElement('span');sz.className='ai-sz';sz.textContent=a.type==='image'?(a.meta.sizeText||''):(cntW(a.text)+' 字');item.appendChild(sz);
-        const rm=document.createElement('button');rm.className='ai-rm';rm.textContent='×';rm.title='移除';rm.onclick=()=>{_pendingAtts.splice(idx,1);renderAttList();};item.appendChild(rm);
+        // ★ 打标开启且为文本类附件 → 加单独预览按钮
+        if(_attChunk&&a.type!=='image'&&a.text){
+            const pv=document.createElement('button');pv.className='ai-rm';pv.textContent='👁';pv.title='预览此文档打标';pv.style.color='var(--pri)';
+            pv.onclick=()=>previewChunkObj(a);
+            item.appendChild(pv);
+        }
+        const rm=document.createElement('button');rm.className='ai-rm';rm.textContent='×';rm.title='移除';rm.onclick=()=>{_pendingAtts.splice(idx,1);renderAttList();if(typeof renderWfAtts==='function')renderWfAtts();};item.appendChild(rm);
         list.appendChild(item);
     });
 }
@@ -1033,10 +1102,17 @@ function renderKBList(){
         const icon=k.type==='image'?'🖼️':k.type==='table'?'📊':k.type==='document'?'📄':'📝';
         const nm=document.createElement('span');nm.className='ai-nm';nm.textContent=icon+' '+k.name;item.appendChild(nm);
         const sz=document.createElement('span');sz.className='ai-sz';sz.textContent=k.type==='image'?'图片':(cntW(k.text||'')+' 字');item.appendChild(sz);
+        // ★ 打标开启且为文本类 → 预览按钮（字段映射：name→fileName）
+        if(_attChunk&&k.type!=='image'&&k.text){
+            const pv=document.createElement('button');pv.className='ai-rm';pv.textContent='👁';pv.title='预览此文档打标';pv.style.color='var(--pri)';
+            pv.onclick=()=>previewChunkObj({fileName:k.name,type:k.type,text:k.text});
+            item.appendChild(pv);
+        }
         const rm=document.createElement('button');rm.className='ai-rm';rm.textContent='×';rm.title='移除';
         rm.onclick=async()=>{if(!confirm('从知识库移除 "'+k.name+'"？'))return;c.knowledgeBase.splice(idx,1);c.updatedAt=Date.now();await saveNow();renderKBList();};
         item.appendChild(rm);wrap.appendChild(item);
     });
+
 }
 
 /* ===== 快照 / 导入导出（含回滚备份 + 字段补齐） ===== */
@@ -1056,7 +1132,7 @@ async function iSnap(inputEl){
         if(!S.folderCollapsed||typeof S.folderCollapsed!=='object')S.folderCollapsed={};
         if(!S.defaultMode)S.defaultMode='free';
         if(!S.profiles[S.currentEngId])S.currentEngId=Object.keys(S.profiles)[0]||'claude';
-        fixProfileFields(); // ★ 补齐多协议/缓存/价格字段
+        fixProfileFields();
         await saveNow();await Snapshot.snapNow(S);renderAll();
         toast('✅ 导入成功（'+source+'）：'+Object.keys(S.chats||{}).length+' 个会话');closeM('snap');
     }catch(e){console.error('[Import]',e);toast('导入失败：'+e.message,'er');}
@@ -1128,7 +1204,6 @@ function initUpload(){
     if(typeof Upload==='undefined')return;
     Upload.onFiles(handleUploadedFiles);
     Upload.init({dropTarget:document.getElementById('msgsArea'),dropMask:document.getElementById('dropMask'),paste:true});
-    // 让工作流栏也能接收拖拽文件
     const wfBar=document.getElementById('wfBar');
     if(wfBar){
         wfBar.addEventListener('dragover',e=>{
