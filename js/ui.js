@@ -334,17 +334,23 @@ const UI = (function () {
         container.scrollTop = container.scrollHeight;
     });
 
-    /* ---------- 流式更新（节流到 50ms） ---------- */
+    /* ---------- 流式更新（节流到 50ms + 智能跟随） ---------- */
     function makeStreamUpdater(bub, container) {
         let lastUpdate = 0;
         let pending = '';
         let timer = null;
         const INTERVAL = 50;
+        const NEAR_BOTTOM = 80;   // ★ 距底部80px内算"贴近底部"
+        function isNearBottom() {
+            if (!container) return true;
+            return (container.scrollHeight - container.scrollTop - container.clientHeight) < NEAR_BOTTOM;
+        }
 
         function flush() {
             if (!pending) return;
+            const stick = isNearBottom();          // ★ 渲染前先看用户在不在底部
             streamRender(bub, pending);
-            scrollToBottom(container);
+            if (stick) scrollToBottom(container);  // ★ 只有原本贴底才跟随
             lastUpdate = Date.now();
             timer = null;
         }
@@ -360,6 +366,7 @@ const UI = (function () {
             }
         };
     }
+
 
     /* ---------- 暴露 ---------- */
     return {
